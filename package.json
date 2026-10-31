@@ -1,0 +1,9 @@
+{
+  "name": "lecture-to-notes-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pinned offline math renderer for lecture reports",
+  "dependencies": {
+    "katex": "0.19.1"
+  }
+}

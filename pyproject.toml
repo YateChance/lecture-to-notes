@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lecture-to-notes"
+version = "0.1.0"
+description = "Local lecture materials with Codex-assisted editing and reports"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6", "Pillow", "markdown2"]
+
+[project.optional-dependencies]
+asr = ["mlx-whisper==0.4.3", "silero-vad==6.2.3"]
+figures = ["matplotlib"]
+
+[project.scripts]
+lecture-agent = "lecture_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

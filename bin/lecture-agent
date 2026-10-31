@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNTIME_PYTHON=${LECTURE_AGENT_PYTHON:-"$HOME/.local/share/codex-course-tools/venv/bin/python"}
+if [ ! -x "$RUNTIME_PYTHON" ]; then
+  RUNTIME_PYTHON=python3
+fi
+export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$RUNTIME_PYTHON" -m lecture_agent.cli "$@"

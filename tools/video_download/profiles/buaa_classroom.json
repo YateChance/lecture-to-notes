@@ -1,0 +1,8 @@
+{
+  "id": "buaa_classroom",
+  "page_hosts": ["classroom.msa.buaa.edu.cn"],
+  "workflow": "使用已登录浏览器打开用户指定回放，核对课程名和教师流/PPT流。优先正常下载入口；否则只读查看video.currentSrc。若为带临时签名的HTTP MP4地址，使用direct_http；签名过期则重新发现。不要把教师流和PPT流混为一份素材。",
+  "observed_media_hosts": ["resource.msa.buaa.edu.cn"],
+  "validated_case": "动力系统 2026-09-18 第2周：video媒体元素提供签名MP4，浏览器媒体下载超时后通过HTTP下载成功。此案例不保证该平台所有回放同样实现。",
+  "credentials": "不保存账号、Cookie或签名媒体地址。"
+}

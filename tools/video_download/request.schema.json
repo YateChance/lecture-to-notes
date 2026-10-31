@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Video download request",
+  "type": "object",
+  "required": ["schema_version", "lesson"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "lesson": {"type": "string", "minLength": 1},
+    "filename": {"type": "string", "default": "lecture.mp4"},
+    "adapter": {"enum": [null, "direct_http", "local_file"]},
+    "page_url": {"type": ["string", "null"]},
+    "media_url": {"type": ["string", "null"]},
+    "local_file": {"type": ["string", "null"]},
+    "profile": {"type": "string"},
+    "stream_role": {"type": "string"},
+    "expected": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "bytes": {"type": "integer", "minimum": 1},
+        "duration_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "duration_tolerance_seconds": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

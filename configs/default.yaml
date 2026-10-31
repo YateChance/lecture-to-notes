@@ -1,0 +1,20 @@
+schema_version: '1.0'
+outputs_dir: outputs
+default_lesson: 动力系统/第05周（1）-圆上振子与二维线性系统
+runtime:
+  python: ~/.local/share/codex-course-tools/venv/bin/python
+  model_cache: ~/.local/share/codex-course-tools/models
+asr:
+  model: whisper-large-v3-turbo-4bit
+  language: zh
+  chunk_seconds: 300
+frames:
+  sample_seconds: 10
+agent:
+  editing_provider: codex_workspace
+  model: gpt-6.1-terra
+  reasoning_effort: medium
+background:
+  report_interval_seconds: 1200
+  process_check_seconds: 5
+  chat_check_interval_minutes: 20
