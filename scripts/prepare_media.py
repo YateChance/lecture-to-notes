@@ -22,10 +22,10 @@ run=root/'_runs'/('prepare_'+uuid.uuid4().hex[:10]);run.mkdir(parents=True)
 if args.stage=='contacts':
     files=sorted((root/'02_frames/board').glob('*.jpg'))
     if not files:raise RuntimeError('请先生成板书裁剪图')
-    stride=max(1,round(100/float(LESSON.get('frames',{}).get('sample_seconds',10))))
+    stride=max(1,round(100/float(LESSON.get('frames',{}).get('sample_seconds',25))))
     selected=files[::stride]
     if selected[-1]!=files[-1]:selected.append(files[-1])
-    target=root/'_runs/workflow_validation/contact_sheets';target.mkdir(parents=True,exist_ok=True)
+    target=root/LESSON.get('frames',{}).get('contact_directory','_runs/workflow_validation/contact_sheets');target.mkdir(parents=True,exist_ok=True)
     manifest=[]
     for i in range(0,len(selected),3):
         sheet=Image.new('RGB',(1270,1560),'white');draw=ImageDraw.Draw(sheet)
@@ -55,7 +55,7 @@ else:
         assert len(list((stage/'full').glob('*.jpg')))==summary['frames']
         print('Reuse verified frame extraction:',summary['frames'])
         raise SystemExit(0)
-    interval=float(LESSON.get('frames',{}).get('sample_seconds',10))
+    interval=float(LESSON.get('frames',{}).get('sample_seconds',25))
     roi=tuple(LESSON.get('frames',{}).get('board_roi',[0,0,1920,1080]))
     frames=run/'frames';frames.mkdir()
     log=run/'ffmpeg.log'

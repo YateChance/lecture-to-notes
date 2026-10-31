@@ -91,6 +91,20 @@ def verify(lesson):
             if not target.exists():
                 errors.append(f'{path.relative_to(lesson)} -> {ref}')
     state = json.loads((lesson / 'status.json').read_text())
+    course=yaml.safe_load((lesson/'lesson.yaml').read_text())
+    if course.get('documents',{}).get('sources'):
+        from .documents import ready as documents_ready
+        if not documents_ready(lesson):errors.append('教材资料未解析或归档不完整')
+        gate_path=lesson/'09_quality/textbook_review.json'
+        if not gate_path.exists():errors.append('缺少教材融合核对记录')
+        else:
+            gate=json.loads(gate_path.read_text());manifest=json.loads((lesson/'05_documents/documents.json').read_text())
+            page_ids={page['page_id'] for item in manifest['documents'] for page in item['selected_pages']}
+            if gate.get('status')!='completed' or gate.get('source_checks_completed') is not True:errors.append('教材融合核对未完成')
+            references=gate.get('references',[])
+            if not references:errors.append('教材融合缺少实际页面引用')
+            for reference in references:
+                if reference.get('page_id') not in page_ids:errors.append('教材页码来源不存在: '+str(reference.get('page_id')))
     for name in ['record', 'report']:
         if not (lesson / state[name]).is_file():
             errors.append(f'缺少{name}: {state[name]}')

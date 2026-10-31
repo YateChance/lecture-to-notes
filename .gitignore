@@ -18,3 +18,4 @@ legacy/
 *.safetensors
 *.cookies
 cookies.txt
+*.pdf

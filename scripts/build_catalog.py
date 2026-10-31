@@ -2,6 +2,7 @@
 from pathlib import Path
 import html
 import json
+import re
 from urllib.parse import quote
 import yaml
 
@@ -17,8 +18,17 @@ def page(title, body):
 items = []
 for config in sorted(outputs.glob('*/*/lesson.yaml')):
     lesson = config.parent
+    # Old lesson paths can remain as compatibility links after a rename.
+    if lesson.is_symlink():
+        continue
     data = yaml.safe_load(config.read_text())
     status = json.loads((lesson / 'status.json').read_text())
+    display_name = lesson.name
+    report = lesson / '08_report/课程讲解报告.md'
+    if data.get('core_content') == '待整理' and status.get('status') == 'completed' and report.is_file():
+        heading = re.search(r'^#\s+(.+?)\s*$', report.read_text(), re.MULTILINE)
+        if heading:
+            display_name = f'第{data["week"]:02d}周（{data["session"]}）-{heading.group(1)}'
     links = [
         ('课程讲解报告', '08_report/课程讲解报告.html'),
         ('正式课堂record', '07_record/ready/record.html'),
@@ -39,8 +49,8 @@ for config in sorted(outputs.glob('*/*/lesson.yaml')):
         body += f'<li><a href="{quote(target)}">{html.escape(label)}</a></li>'
     body += '</ul><p><a href="../../index.html">返回课程总目录</a></p>'
     body += '<small>源数据、编修稿与报告分开保存；本页链接均指向本项目中的文件。</small>'
-    (lesson / 'index.html').write_text(page(lesson.name, body))
+    (lesson / 'index.html').write_text(page(display_name, body))
     relative = lesson.relative_to(outputs) / 'index.html'
-    items.append(f'<li><a href="{quote(str(relative))}">{html.escape(data["subject"])} / {html.escape(lesson.name)}</a></li>')
+    items.append(f'<li><a href="{quote(str(relative))}">{html.escape(data["subject"])} / {html.escape(display_name)}</a></li>')
 (outputs / 'index.html').write_text(page('课程材料目录', '<ul>' + ''.join(items) + '</ul>'))
 print('Catalog updated:', outputs / 'index.html')

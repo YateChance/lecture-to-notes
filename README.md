@@ -2,7 +2,7 @@
 
 本地处理课程视频，用 Codex 核对板书、编修课堂 record，再生成带来源的讲解报告。当前固定通路面向 **macOS Apple Silicon、教师机位视频、中文课程**。
 
-语义模型固定 **GPT-6.1 Terra / medium**。下载、FFmpeg、VAD、语音识别、OCR、时间轴、缓存和监督由本地代码执行；这些步骤不调用 GPT。课程视频、模型、签名请求和输出保留在本机，不上传 GitHub。
+语义模型固定 **GPT-6.1 Terra / medium**。下载、FFmpeg、VAD、语音识别、OCR、时间轴、缓存和监督由本地代码执行；这些步骤不调用 GPT。课程素材、模型、签名请求和输出不上传GitHub。音视频在处理期间临时保留，报告确认并校验通过后自动删除；图片、转写、教材和来源哈希保留在本机。
 
 ## 已验证结果
 
@@ -12,7 +12,7 @@
 
 ## 首次准备
 
-需要 Python 3.12+、Node.js 22.12+、FFmpeg/FFprobe、macOS Swift 工具链和已登录的 Codex CLI。
+需要 Python 3.12+、Node.js 22.12+、FFmpeg/FFprobe、Poppler（pdfinfo/pdftotext/pdftoppm）、macOS Swift 工具链和已登录的 Codex CLI。
 
 ```bash
 python3 -m venv .venv
@@ -26,7 +26,7 @@ npm ci --ignore-scripts
 
 ASR、VAD及Apple Vision OCR在本地运行，无需OpenAI API token。板书编修与报告通过已登录Codex执行，使用该账号的额度。模型设置保存在项目配置和 `.codex/config.toml`，实际调用还会显式传入模型与推理强度。
 
-## 固定工作流 v1
+## 固定工作流 v2
 
 ### 1. 初始化课程
 
@@ -53,20 +53,20 @@ ASR、VAD及Apple Vision OCR在本地运行，无需OpenAI API token。板书编
 
 ```bash
 ./bin/lecture-agent background start \
-  --lesson '示例课程/第01周（1）-核心内容' --stage download -- \
+  --lesson '示例课程/第01周（1）-核心内容' --stage download --continue-pipeline -- \
   ./bin/lecture-agent download fetch --request 'outputs/.download_requests/实际请求ID.json'
 ```
 
 ### 3. 一条命令接续处理
 
-确认下载完成后：
+使用上面的 `--continue-pipeline` 后，下载校验成功时后台立即启动固定流水线，不等待20分钟心跳；下载失败时停止。转录就绪后流水线直接接续，不由聊天轮询驱动。需要手动接续时：
 
 ```bash
 ./bin/lecture-agent pipeline plan --lesson '示例课程/第01周（1）-核心内容'
 ./bin/lecture-agent pipeline run --lesson '示例课程/第01周（1）-核心内容'
 ```
 
-固定顺序：音轨 → 抽帧 → VAD → ASR → OCR → 板书核对 → record → 报告 → 离线渲染与检查。原视频来自下载登记；未完成阶段接续执行，有效阶段直接复用。板书任务每约30分钟一段，完整转写和对应图片直接作为输入，避免长文件读取截断。
+固定顺序：音轨 → 25秒抽帧 → VAD → ASR → OCR → 教材页级解析 → 板书核对 → record → 报告 → 离线检查 → 音视频清理。原视频来自下载登记；未完成阶段接续执行，有效阶段直接复用。板书任务每约30分钟一段，完整转写和对应图片直接作为输入，避免长文件读取截断。
 
 未完成的真实任务默认独立后台运行。脚本每5秒本地监督、每20分钟写摘要，结束或失败立即记录；监督不调用模型。Codex启动长任务后另行登记20分钟聊天心跳并结束当前轮，仅读取摘要，不持续轮询。无变化保持安静，所有任务结束后停止心跳。单独使用CLI只写本地回报文件，聊天通知需App登记成功。
 
@@ -124,4 +124,18 @@ PYTHONPATH=src "$LECTURE_AGENT_PYTHON" -m unittest discover -s tests -v
 
 测试涵盖未完成门禁、缓存失效、后台成功/失败回报、重复运行零worker、目录保护，以及HTTP下载续传与来源校验。下载测试使用本地服务器和合成视频，不依赖课堂登录。
 
-课件/教材解析、任意平台获取及更完整调度仍按 [实施计划](docs/PLAN.md)扩展。当前流程遇到已配置的辅助资料会明确停止，不会忽略它们后声称已完成融合。
+教材PDF已支持明确选页、文字层提取、重点页面图、页级引用及报告融合。课件解析、无文字层PDF的完整OCR、任意平台获取及更完整调度仍按[实施计划](docs/PLAN.md)扩展。
+
+## 教材与媒体清理
+
+教材按实际来源选页，PDF物理页与纸书印刷页分别记录；原教材只读，课内保留归档PDF、页面图、文字候选及哈希。示例：
+
+```bash
+./bin/lecture-agent pipeline documents --lesson '示例课程/第01周（1）-核心内容' \
+  --source '/实际路径/教材.pdf' --id textbook --title '实际教材名称' \
+  --pages 10 20 --visual-pages 10 15 20 --printed-offset 8
+```
+
+页码必须从实际目录及页面核定，示例数字不能直接套用。教材补充和教师课堂陈述区分，引用写入05_documents及主题级时间关联。已有完成课程增加教材/改变抽帧时，需显式修订并保留历史证据；不能用旧报告门禁跳过教材核对。
+
+`retention.delete_media_after_verified_report`默认开启。报告、教材融合及来源链接检查通过后，自动移除课目录内音视频，保存`09_quality/report_confirmation.json`、`media_cleanup.json`与音轨元数据。相关媒体超链接改为清理说明和来源登记，后续缓存验证不要求重新下载。需要重新转写或抽取不同画面时须重新导入媒体。也可对已确认的报告显式执行`pipeline cleanup`。

@@ -17,7 +17,8 @@ class PipelineTests(TestCase):
             root=Path(temporary);self.project(root)
             lesson=pipeline.initialize('测试课程',1,1,'示例','2026-10-31',[0,0,1280,720])
             self.assertEqual(lesson.name,'第01周（1）-示例')
-            self.assertFalse(any(pipeline.ready(lesson,stage) for stage in pipeline.STAGES))
+            self.assertFalse(any(pipeline.ready(lesson,stage) for stage in pipeline.STAGES if stage!='documents'))
+            self.assertTrue(pipeline.ready(lesson,'documents'))
             with self.assertRaises(ValueError):pipeline.initialize('测试课程',1,1,'示例','2026-10-31',[0,0,1280,720])
             with self.assertRaises(ValueError):pipeline.initialize('../escape',1,1,'示例','2026-10-31',[0,0,1280,720])
 

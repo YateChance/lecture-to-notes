@@ -14,10 +14,14 @@ if not video_source or not video_source.get('source_id'):
     raise RuntimeError('来源登记中缺少当前视频及source_id，不能生成伪造引用')
 video_source_id=video_source['source_id']
 audio = json.loads((root / '04_transcripts/lecture_segments_clean.json').read_text())
-probe = json.loads(subprocess.check_output([
+video_path=root/'00_sources/video/lecture.mp4'
+if video_path.exists():
+ probe = json.loads(subprocess.check_output([
     'ffprobe', '-v', 'error', '-show_entries',
     'format=duration,size:stream=index,codec_type,codec_name,width,height,start_time,sample_rate',
-    '-of', 'json', str(root / '00_sources/video/lecture.mp4')], text=True))
+    '-of', 'json', str(video_path)], text=True))
+else:
+ probe=json.loads((root/'01_audio/media.json').read_text())
 duration_ms = round(float(probe['format']['duration']) * 1000)
 starts={s['codec_type']:float(s.get('start_time',0)) for s in probe['streams'] if s['codec_type'] in {'video','audio'}}
 if any(abs(value)>0.001 for value in starts.values()):
@@ -61,7 +65,7 @@ for start in range(0, duration_ms, 300000):
                      'document_refs': [], 'semantic_alignment_reviewed': False})
 (out / 'segments.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in segments))
 (out / 'source_links.jsonl').write_text('')
-lines = ['# 时间戳汇总', '', '按原视频时间汇总语音与图片，5分钟一组。此文件是确定性的时间索引，不表示已完成每一句语音与每条公式的语义对应。原语音和OCR候选仍可能有误；正式内容见record和报告。未提供课件或教材，故没有资料页码关联。', '',
+lines = ['# 时间戳汇总', '', '按原视频时间汇总语音与图片，5分钟一组。此文件是确定性的时间索引，不表示已完成每一句语音与每条公式的语义对应。原语音和OCR候选仍可能有误；正式内容见record和报告。教材页码证据另见05_documents及source_links.jsonl。', '',
          '| 视频区间 | 语音片段数 | 图片数 |', '|---|---:|---:|']
 for segment in segments:
     def stamp(ms):

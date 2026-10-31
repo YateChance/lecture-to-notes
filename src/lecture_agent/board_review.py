@@ -12,7 +12,8 @@ def review(root,base):
     rows=list(csv.DictReader((root/'02_frames/帧索引.csv').open(encoding='utf-8-sig')))
     frames={Path(row['板书裁剪图']).name:row for row in rows}
     ocr=[json.loads(x) for x in (root/'03_board/raw/ocr_raw.jsonl').read_text().splitlines()]
-    contact_dir=root/'_runs/workflow_validation/contact_sheets'
+    lesson_config=yaml.safe_load((root/'lesson.yaml').read_text())
+    contact_dir=root/lesson_config.get('frames',{}).get('contact_directory','_runs/workflow_validation/contact_sheets')
     manifest=json.loads((contact_dir/'manifest.json').read_text())
     tasks=[];parts=[];reviews=[]
     for number,start in enumerate(range(0,math.ceil(audio['duration']),1800),1):

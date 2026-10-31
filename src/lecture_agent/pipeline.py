@@ -5,8 +5,8 @@ import argparse,csv,hashlib,json,math,os,shutil,subprocess,sys,wave
 import yaml
 
 PROJECT=Path(__file__).resolve().parents[2]
-VERSION='1.0'
-STAGES=('audio','frames','vad','asr','ocr','finish')
+VERSION='2.0'
+STAGES=('audio','frames','vad','asr','ocr','documents','finish')
 DIRECTORIES=('00_sources/video','00_sources/downloads','01_audio','02_frames/full','02_frames/board',
              '03_board/raw','03_board/reviewed','04_transcripts','05_documents','06_timeline',
              '07_record/draft','07_record/ready','08_report','09_quality','_runs')
@@ -48,6 +48,9 @@ def ready(root,stage):
     try:
         lesson=configuration(root)
         if stage=='audio':
+            if not (root/'01_audio/audio.wav').exists():
+                from .retention import removed
+                return removed(root,'01_audio/audio.wav') and (root/'01_audio/audio_manifest.json').is_file()
             with wave.open(str(root/'01_audio/audio.wav')) as audio:
                 return audio.getnchannels()==1 and audio.getframerate()==16000 and audio.getsampwidth()==2 and audio.getnframes()>0
         if stage=='frames':
@@ -56,12 +59,14 @@ def ready(root,stage):
             return count>0 and len(rows)==count and len(list((root/'02_frames/full').glob('*.jpg')))==count and len(list((root/'02_frames/board').glob('*.jpg')))==count and list(summary['roi'])==list(lesson['frames']['board_roi']) and summary['interval_seconds']==lesson['frames']['sample_seconds'] and all((root/'02_frames'/row[key]).is_file() for row in rows for key in ('原图','板书裁剪图'))
         if stage=='vad':
             data=load(root/'04_transcripts/speech_intervals.json')
-            with wave.open(str(root/'01_audio/audio.wav')) as audio:duration=audio.getnframes()/audio.getframerate()
+            from .retention import audio_duration
+            duration=audio_duration(root)
             return data.get('complete') is True and abs(data['duration']-duration)<.1
         if stage=='asr':
             data=load(root/'04_transcripts/lecture_segments.json');count=math.ceil(data['duration']/lesson['asr']['chunk_seconds'])
             chunks=list((root/'04_transcripts').glob('chunk_*.json'))
-            with wave.open(str(root/'01_audio/audio.wav')) as audio:duration=audio.getnframes()/audio.getframerate()
+            from .retention import audio_duration
+            duration=audio_duration(root)
             if abs(data['duration']-duration)>.1:return False
             for number,chunk in enumerate(sorted(chunks)):
                 checkpoint=load(chunk)
@@ -74,17 +79,26 @@ def ready(root,stage):
             lines=[json.loads(line) for line in (root/'03_board/raw/ocr_raw.jsonl').read_text().splitlines()]
             names={p.name for p in (root/'02_frames/board').glob('*.jpg')}
             return bool(names) and len(lines)==len(names) and {item['file'] for item in lines}==names
+        if stage=='documents':
+            if not lesson.get('documents',{}).get('sources'):return not lesson['inputs'].get('textbook') and not lesson['inputs'].get('slides')
+            from .documents import ready as documents_ready
+            return documents_ready(root)
         if stage=='finish':
             files=('07_record/ready/record.md','07_record/ready/record.html','07_record/ready/record.json',
                    '03_board/reviewed/板书文本校订稿.md','03_board/reviewed/板书文本校订稿.html','08_report/课程讲解报告.md','08_report/课程讲解报告.html')
             board=load(root/'09_quality/board_review.json');record=load(root/'09_quality/record_gate.json');report=load(root/'09_quality/report_gate.json')
-            return all((root/p).is_file() for p in files) and board.get('status')=='completed' and board.get('all_supplied_transcript_reviewed') is True and record.get('status')=='completed' and record.get('full_lesson_covered') is True and report.get('status')=='completed' and report.get('full_lesson_covered') is True and report.get('source_checks_completed') is True
+            complete=all((root/p).is_file() for p in files) and board.get('status')=='completed' and board.get('all_supplied_transcript_reviewed') is True and record.get('status')=='completed' and record.get('full_lesson_covered') is True and report.get('status')=='completed' and report.get('full_lesson_covered') is True and report.get('source_checks_completed') is True
+            if lesson.get('documents',{}).get('sources'):
+                gate=load(root/'09_quality/textbook_review.json');complete=complete and gate.get('status')=='completed' and gate.get('source_checks_completed') is True
+            return complete
     except (OSError,ValueError,KeyError,TypeError,wave.Error):return False
     return False
 
 def fingerprint(root):
     """Hash small artifacts; stat large immutable media. Paths remain lesson-relative."""
     result={'workflow_version':VERSION,'agent':settings()['agent'],'lesson':configuration(root),'files':{}}
+    from .retention import receipt
+    result['retention']=receipt(root)
     for path in sorted(root.rglob('*')):
         relative=path.relative_to(root)
         if not path.is_file() or relative.parts[0] in {'_runs','09_quality'} or path.name in {'status.json','index.html'}:continue
@@ -111,6 +125,16 @@ def freeze(root):
     verify(root)
     lesson=configuration(root);video=root/lesson['inputs']['video']
     source=next((item for item in reversed([json.loads(x) for x in (root/'00_sources/sources.jsonl').read_text().splitlines()]) if item.get('path')==lesson['inputs']['video']),None)
+    if not video.exists():
+        from .retention import receipt,removed,sha
+        cleanup=receipt(root)
+        if not removed(root,lesson['inputs']['video']):raise RuntimeError('视频缺失且没有已确认报告的清理回执')
+        entry=next(item for item in cleanup['files'] if item['path']==lesson['inputs']['video'])
+        if not source or entry['sha256']!=source['sha256']:raise RuntimeError('清理回执与视频来源不一致')
+        if cleanup['confirmed_report']['report_md_sha256']!=sha(root/'08_report/课程讲解报告.md'):raise RuntimeError('报告发生变化，请重新确认后再固定缓存')
+        data={'workflow_version':VERSION,'fingerprint':fingerprint(root),'video_sha256':entry['sha256'],'media_deleted':True,
+              'frozen_at':datetime.now(timezone.utc).isoformat(),'stages':list(STAGES),'note':'原音视频已在报告检查通过后清理；保留文字、图片、教材和来源身份。'}
+        save(root/'_runs/pipeline/frozen.json',data);return data
     if not source or source.get('bytes')!=video.stat().st_size:raise RuntimeError('视频来源登记/文件大小不匹配')
     marker=root/'_runs/pipeline/frozen.json';prior=load(marker) if marker.exists() else {}
     video_stat={'size':video.stat().st_size,'mtime_ns':video.stat().st_mtime_ns}
@@ -145,13 +169,15 @@ def ocr(root):
 
 def run(root):
     lesson=configuration(root)
-    if lesson['inputs'].get('slides') or lesson['inputs'].get('textbook'):raise RuntimeError('辅助资料解析尚未接入固定流程，请先完成资料模块')
+    if lesson['inputs'].get('slides'):raise RuntimeError('课件解析尚未接入；教材PDF可通过documents配置接入')
     frozen=root/'_runs/pipeline/frozen.json'
     if frozen.exists():
         if load(frozen).get('fingerprint')==fingerprint(root) and all(ready(root,stage) for stage in STAGES):
             verify(root);print('CACHE_HIT: 全流程产物有效，模型调用=0。',flush=True);return
         if ready(root,'finish'):raise RuntimeError('已固定课程的输入或产物发生变化；请先核对变化并verify/freeze，不自动重做整课')
-    if not (root/lesson['inputs']['video']).is_file():raise RuntimeError('缺少原视频；先使用download工具获取并登记')
+    if not (root/lesson['inputs']['video']).is_file():
+        from .retention import removed
+        if not removed(root,lesson['inputs']['video']):raise RuntimeError('缺少原视频；先使用download工具获取并登记')
     assets(root)
     commands={'audio':['prepare_media.py','--stage','audio'],'frames':['prepare_media.py','--stage','frames'],
               'vad':['detect_speech.py'],'asr':['transcribe_vad.py'],'finish':['finish_lesson.py']}
@@ -160,6 +186,9 @@ def run(root):
         print('START',stage,flush=True)
         save(root/'_runs/pipeline/status.json',{'stage':stage,'status':'running','workflow_version':VERSION})
         if stage=='ocr':ocr(root)
+        elif stage=='documents':
+            from .documents import prepare
+            prepare(root)
         else:
             command=commands[stage]
             subprocess.run([sys.executable,'-u',str(PROJECT/'scripts'/command[0]),'--lesson',str(root),*command[1:]],cwd=PROJECT,check=True)
@@ -171,7 +200,7 @@ def run(root):
 
 def main():
     from .cli import lesson_path
-    parser=argparse.ArgumentParser(description='固定流程v1：初始化、计划、后台运行、固定已验证缓存')
+    parser=argparse.ArgumentParser(description='固定流程v2：25秒抽帧、教材页级证据、报告确认后媒体清理')
     sub=parser.add_subparsers(dest='action',required=True)
     init=sub.add_parser('init')
     for key in ('subject','title','date'):init.add_argument('--'+key,required=True)
@@ -180,9 +209,26 @@ def main():
     for action in ('plan','freeze','run'):
         item=sub.add_parser(action);item.add_argument('--lesson')
         if action=='run':item.add_argument('--foreground',action='store_true')
+    document=sub.add_parser('documents');document.add_argument('--lesson')
+    document.add_argument('--source',required=True,type=Path);document.add_argument('--id',required=True);document.add_argument('--title',required=True)
+    document.add_argument('--pages',nargs=2,type=int,action='append',required=True);document.add_argument('--visual-pages',nargs='*',type=int,default=[])
+    document.add_argument('--printed-offset',type=int)
+    cleanup=sub.add_parser('cleanup');cleanup.add_argument('--lesson')
     args=parser.parse_args()
     if args.action=='init':print(initialize(args.subject,args.week,args.session,args.title,args.date,args.roi));return 0
     root=lesson_path(args.lesson)
+    if args.action=='documents':
+        lesson=configuration(root);item={'id':args.id,'path':str(args.source.expanduser().resolve()),'title':args.title,'role':'textbook',
+                                         'pdf_page_ranges':args.pages,'visual_pages':args.visual_pages}
+        if args.printed_offset is not None:item['printed_page_offset']=args.printed_offset
+        sources=lesson.setdefault('documents',{}).setdefault('sources',[])
+        sources[:]=[entry for entry in sources if entry['id']!=args.id]+[item];lesson['inputs']['textbook']=item['path']
+        (root/'lesson.yaml').write_text(yaml.safe_dump(lesson,allow_unicode=True,sort_keys=False))
+        from .documents import prepare
+        print(json.dumps(prepare(root),ensure_ascii=False,indent=2));return 0
+    if args.action=='cleanup':
+        from .retention import confirm_and_cleanup
+        print(json.dumps(confirm_and_cleanup(root),ensure_ascii=False,indent=2));return 0
     if args.action=='plan':print(json.dumps(plan(root),ensure_ascii=False,indent=2));return 0
     if args.action=='freeze':print(json.dumps(freeze(root),ensure_ascii=False,indent=2));return 0
     if args.foreground:
